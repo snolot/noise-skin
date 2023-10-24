@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>three-noise-skin</title>
+	<link rel="stylesheet" type="text/css" href="./css/style.css">
+	<script type="text/javascript" src="./libs/simplex-noise.js"></script>
+</head>
+<body>
+	<div class="title">ParticleSkin</div>
+	<div class="subtitle">WebGL Particles<div class="info">Done with three.js</div></div>
+	
+	<script type="module">
+		import * as THREE from './libs/build/three.module.js';
+		import { OrbitControls } from './libs/examples/jsm/controls/OrbitControls.js';
+		import { GLTFLoader } from './libs/examples/jsm/loaders/GLTFLoader.js';
+		import {HDRCubeTextureLoader} from './libs/examples/jsm/loaders/HDRCubeTextureLoader.js';
+		import {TWEEN} from './libs/examples/jsm/libs/tween.module.min.js';
+
+		import {DissolveMaterial} from './src/DissolveMaterial.js';
+		import {Effects} from './Effects.js';
+		import {Particles} from './src/Particles.js';
+		
+		const title = document.querySelector('.title');
+		const subtitle = document.querySelector('.subtitle');
+		const clock = new THREE.Clock();
+		const loader = new GLTFLoader();
+		
+		let camera, scene, renderer, model;
+		const noise = new SimplexNoise();
+		
+		let touch = false;
+		let touched = false;
+		let hovered =null
+		let leafHolder = new THREE.Group();
+		let fx;
+		let particles;
+
+		const raycaster = new THREE.Raycaster();
+		const mouse = new THREE.Vector2(-9990,0);
+		const posHit = new THREE.Vector3();
+		const oldMouse = mouse.clone();
+
+		let waitForTouch = false;
+
+		let oldY = 0, dir = 0;
+
+		let frame = 0;
+		let launchFire = false;
+		let time  = 0;
+		let windVal = 0;
+		let windLaunched = false;
+
+		var timestamp = null;
+		var lastMouseX = null;
+		var lastMouseY = null;
+
+		let speedX,  speedY;
+
+		var SPREAD     = 0.025;
+		var SPEED      = 20.0;
+		var ANGLE      = 2.0;
+
+		const vrot = new THREE.Vector3();
+		let dissolveMat;
+		const wind = new THREE.Vector3();
+		
+
+		let step = 0;
+		let cameraDebug, sceneDebug, spriteDebug, idxDebug = 0, debugEnabled = true;
+
+		const initDebug = _ => {
+			document.addEventListener('keyup', e => {
+				switch(e.keyCode){
+					case 49:
+						idxDebug = 0
+					break
+					case 50:
+						idxDebug = 1
+					break
+					case 51:
+						idxDebug = 2
+					break
+					case 52:
+						idxDebug = 3
+					break
+					case 53:
+						idxDebug = 4
+					break
+					case 54:
+						idxDebug = 5
+					break
+					case 32:
+						debugEnabled = !debugEnabled;
+					break
+				}
+			})
+
+			cameraDebug = new THREE.OrthographicCamera( - window.innerWidth / 2, window.innerWidth / 2, window.innerHeight / 2, - window.innerHeight / 2, 1, 10 );
+			cameraDebug.position.z = 10;
+
+			sceneDebug = new THREE.Scene();
+			//sceneDebug.background = new THREE.Color('red')
+			var spriteMaterial = new THREE.SpriteMaterial( { map: null } );
+			
+			spriteDebug = new THREE.Sprite( spriteMaterial );
+			spriteDebug.scale.set( 256, 256, 1 );
+			sceneDebug.add( spriteDebug );
+
+			
+			var halfWidth = window.innerWidth / 2;
+			var halfHeight = window.innerHeight / 2;
+
+			var halfImageWidth = 256 / 2;
+			var halfImageHeight = 256 / 2;
+
+			spriteDebug.position.set( - halfWidth + halfImageWidth, halfHeight - halfImageHeight, 1 );
+
+
+			cameraDebug.left = - window.innerWidth / 2;
+			cameraDebug.right = window.innerWidth / 2;
+			cameraDebug.top = window.innerHeight / 2;
+			cameraDebug.bottom = - window.innerHeight / 2;
+			cameraDebug.updateProjectionMatrix();
+		}
+
+		const initLights = () => {
+			const ambient = new THREE.AmbientLight( 0xffffff, 1.8 );
+			scene.add( ambient );
+
+			const dirLight = new THREE.DirectionalLight( 0xffffff, 6.5 );
+			dirLight.position.set( 10, 10, 10 );
+			dirLight.target = model;
+
+			dirLight.castShadow = true;
+			dirLight.shadow.camera.near = 1;
+			dirLight.shadow.camera.far = 100;
+			dirLight.shadow.camera.right = 15;
+			dirLight.shadow.camera.left = - 15;
+			dirLight.shadow.camera.top	= 15;
+			dirLight.shadow.camera.bottom = - 15;
+			dirLight.shadow.mapSize.width = 2048;
+			dirLight.shadow.mapSize.height = 2048;
+			dirLight.shadow.radius = 4;
+			dirLight.shadow.bias = - 0.0005;
+
+
+			scene.add( dirLight );
+
+			const directionalLight2 = new THREE.DirectionalLight( 0xcccccc, 7.3 );
+			directionalLight2.position.set( 1, 11, - 1 );
+			scene.add( directionalLight2 );
+		};
+		let branch_1;
+		let skinnedMesh;
+
+		let mixer;
+
+		let envTexture;
+
+		const initCubeMap = async() => {
+			return new Promise((resolve)  => {
+				const textureCube = new HDRCubeTextureLoader()
+				.setPath( './textures/' )
+				.load( [ 'rad_posx.hdr', 'rad_negx.hdr', 'rad_posy.hdr', 'rad_negy.hdr', 'rad_posz.hdr', 'rad_negz.hdr' ],
+					( texture ) => {
+						scene.environment = texture;
+						resolve(true);
+					}
+				);
+			});
+		};
+
+		const initModel = () => {
+			return new Promise((resolve) => {
+				loader.load('./pmi_science_plant.glb', gltf => {
+					model = gltf.scene;
+					const animations = gltf.animations;
+					//console.log(animations);
+
+					model.traverse((child) => {
+						if(child.isSkinnedMesh){
+							skinnedMesh = child;
+							/*mixer = new THREE.AnimationMixer(skinnedMesh);
+							const action = mixer.clipAction(animations[0]);
+							action.play();*/
+						}
+					})
+
+					
+
+
+					model.traverse((child) => {
+						if(child.isMesh){
+							if(child.name === 'branch_1')
+								branch_1 = child;
+							//console.log(child.geometry);
+							if(child.name.indexOf('branch') != -1){
+								child.material.transparent = true;
+								child.material.opacity = 0; 
+								//child.material.envMap = envTexture;
+								//child.material.envMapIntensity = 1.2; 
+							//	child.material.envMap.needsUpdate= true;
+							} else {
+								child.material = dissolveMat.material;
+
+								child.castShadow = true;
+								child.receiveShadow = true;
+							}							
+						}
+					});
+
+					scene.add(leafHolder);
+
+					leafHolder.add(model);
+					resolve(true);
+				});
+			})
+		};
+
+		const onTouchBegan = e => {
+
+			touched = true;
+		};
+
+		const onTouchMoved = e => {
+			
+
+		    const x = touch ? e.changedTouches[0].pageX : e.pageX;
+		    const y = touch ? e.changedTouches[0].pageY : e.pageY;
+
+		    mouse.x = (x / window.innerWidth) * 2 - 1
+		    mouse.y = -(y / window.innerHeight) * 2 + 1
+
+		    if (timestamp === null) {
+		        timestamp = Date.now();
+		        lastMouseX = e.screenX;
+		        lastMouseY = e.screenY;
+		        return;
+		    }
+
+		    var now = Date.now();
+		    var dt =  now - timestamp;
+		    var dx = e.screenX - lastMouseX;
+		    var dy = e.screenY - lastMouseY;
+		    speedX = Math.round(dx / dt * 100);
+		    speedY = Math.round(dy / dt * 100);
+
+		    timestamp = now;
+		    lastMouseX = e.screenX;
+		    lastMouseY = e.screenY;
+
+		    dir = (speedY < 0) ? -1 : 1;
+
+		    wind.set(speedX, speedY, 0);
+		};
+
+		const onTouchEnded = e => { 
+
+			touched = false;	
+		};
+
+		const resizeHandler = () => {
+			const w = window.innerWidth;
+		    const h = window.innerHeight;
+
+		    renderer.setSize(w, h);
+		    camera.aspect = w / h;
+		    camera.updateProjectionMatrix();
+		};
+
+		const initEvents = () => {
+			window.addEventListener('resize', resizeHandler);
+
+			const touchBegan = touch ? 'touchstart' : 'mousedown';
+		    const touchMoved = touch ? 'touchmove' : 'mousemove';
+		    const touchEnded = touch ? 'touchend' : 'mouseup';
+		    
+		    document.addEventListener(touchBegan, onTouchBegan);
+		    window.addEventListener(touchMoved, onTouchMoved);
+		    document.addEventListener(touchEnded, onTouchEnded);
+		};
+
+		const initParticles = () => {
+
+		};
+
+		const initDisolveMaterial = async () => {
+			return new Promise((resolve) => {
+				new THREE.TextureLoader().load('./textures/baseColor2.png', (texture) => {
+					texture.flipY = false;
+
+					dissolveMat = DissolveMaterial(renderer, {
+						color:new THREE.Color(1,1,1),
+						transparent: false,
+						vertexColors: true,
+						wireframe:false,
+						depthTest:true,
+						depthWrite:true,
+						map: texture,
+						side:THREE.DoubleSide,
+						metalness: 0.1,
+						roughness: .4,
+						alphaTest:  .6,
+						//opacity:1.,
+						normalMap:new THREE.TextureLoader().load('./textures/normal.png'),
+						normalScale:new THREE.Vector2(.5,.5	)
+						/*emissiveIntensity: .1,
+						emissive:new THREE.Color(0.1,0.1,0.1),*/
+					});
+
+
+					resolve(true);
+				});
+			});
+		};
+
+		const init = async () => {
+			camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 1, 1000);
+			scene = new THREE.Scene();
+			camera.position.z = 5;	
+			camera.position.y = 5;
+			renderer = new THREE.WebGLRenderer({alpha:false});
+			//renderer.setPixelRatio(window.devicePixelRatio);
+    		renderer.outputEncoding = THREE.sRGBEncoding;
+			renderer.physicallyCorrectLights = true;
+	    	renderer.shadowMap.enabled = true;
+			renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+			renderer.toneMapping = THREE.ACESFilmicToneMapping;
+			document.body.appendChild(renderer.domElement);
+			renderer.setClearColor ( new THREE.Color(0,0,0), 1.0 ) 
+			renderer.setSize(innerWidth, innerHeight);
+
+			//scene.add(new THREE.AmbientLight(0xFFFFFF));
+			//scene.background = new THREE.TextureLoader().load('./PMI-ToolScience-BG-Heat.png');
+
+			const control = new OrbitControls(camera, renderer.domElement);
+			control.target = new THREE.Vector3(0,1,0);
+			control.update();
+
+			initDisolveMaterial();
+			//await initCubeMap();
+
+			await initModel(); 
+			initLights();
+			initEvents();
+			
+			//fx = Effects(renderer, scene, camera);
+			
+			initDebug();
+			
+			
+			particles = Particles(renderer, scene, camera, skinnedMesh);
+			particles.init();
+
+			title.classList.add('show')
+			subtitle.classList.add('show')
+
+			update();
+		};
+
+		const radians = (degrees) => {
+
+			return degrees * Math.PI / 180;
+		};
+
+		const moveBranchIn = (branchID, first) => {
+			let r = .05;
+			let i = 0;
+
+			model.traverse(child => {
+				if(child.isBone && child.name.indexOf(branchID) != -1){
+					//console.log(child.name);
+					const oldRZ = child.rotation.z;
+
+					new TWEEN.Tween(child.rotation).to({ z: oldRZ - r}, .250).delay(50 + i*20).easing(TWEEN.Easing.Bounce.In).start();
+					i++
+				}
+			});
+
+			setTimeout(() => {
+				if(first)
+					moveBranchOut(branchID);
+				else
+					waitForTouch = false;
+			}, 300);
+		};
+
+		const moveBranchOut = (branchID, first) => {
+			let r = -.05;
+			let i = 0
+			model.traverse(child => {
+				if(child.isBone && child.name.indexOf(branchID) != -1){
+					//console.log(child.name);
+					const oldRZ = child.rotation.z;
+
+					//child.rotateZ(r);
+					//r-= .1;
+
+					new TWEEN.Tween(child.rotation).to({ z: oldRZ - r }, .250).delay(50 + i*20).easing(TWEEN.Easing.Bounce.In).start();
+					i++
+				}
+			});
+
+			setTimeout(() => {
+				if(first)
+					moveBranchIn(branchID);
+				else
+					waitForTouch = false;
+			}, 300);
+		};
+
+		const updateHover = () => {
+			
+			raycaster.setFromCamera(mouse, camera);
+
+			const intersects = raycaster.intersectObject(branch_1);
+
+			if(intersects.length > 0) {	
+				//console.log(intersects[0].object.name)
+				if(!windLaunched){
+					launchWindAnim();
+				};
+
+				if(intersects[0].object.name.indexOf('branch') != -1) {
+
+					//console.log(intersects[0])	
+
+					if(!waitForTouch){
+						hovered = intersects[0].object.name;
+						if(dir > 0){
+							if(step == 0) {
+								moveBranchIn(hovered, true);
+								waitForTouch = true;
+								launchFire = true;
+								dissolveMat.hit.copy(intersects[0].point);
+								step = 1;
+								particles.show();
+							}else{
+								particles.activate();
+								step = 2;
+							}
+							
+
+							const uv = intersects[0].uv;
+							//intersects[0].object.material.map.transformUv(uv);
+						}else{
+							if(step == 0) {
+								moveBranchOut(hovered, true);
+								waitForTouch = true;
+								launchFire = true;
+								dissolveMat.hit.copy(intersects[0].point);
+								
+								const uv = intersects[0].uv;
+								console.log(uv)
+								particles.show();
+								step = 1;
+							} else {
+								particles.activate();
+								step = 2;
+							}
+							//intersects[0].object.material.map.transformUv(uv);
+						}
+
+						//posHit.copy(intersects[0].point);
+
+						
+					}
+				}
+				
+			} else {
+				hovered = null
+			}	
+		};
+
+		const launchWindAnim = () => {
+			if(!windLaunched){
+				windLaunched = true;
+
+				const objIn = {
+					value: 0,
+				}
+
+				const obj = {
+					value: -wind.x / 50,
+				}
+
+				const t = new TWEEN.Tween(obj).to({value:0}, 600)
+				.onUpdate(() => {
+					windVal = obj.value;
+				})
+				.onComplete(() => {
+					windVal = 0;
+					windLaunched = false;
+				})
+				.easing(TWEEN.Easing.Bounce.Out)
+				.start();
+
+				new TWEEN.Tween(objIn).to({value:-wind.x / 100}, 1800)
+				.chain(t)
+				.onUpdate(() => {
+					windVal = obj.value;
+				})
+				.start();
+
+				
+			}
+		};
+
+		const updateDebug = () => {
+			if(debugEnabled){
+				if(idxDebug == 0)
+					spriteDebug.material.map = particles.originalTexture;
+				else if(idxDebug == 1)
+					spriteDebug.material.map = rttFront.texture;
+				/*else if(idxDebug == 2)
+					spriteDebug.material.map = rttNormalFront.texture;
+				else if(idxDebug == 3)
+					spriteDebug.material.map = rttBack.depthTexture;				
+				else if(idxDebug == 4)
+					spriteDebug.material.map = rttBack.texture;				
+				else if(idxDebug == 5)
+					spriteDebug.material.map = rttNormalBack.texture;*/
+
+				renderer.render( sceneDebug, cameraDebug );
+			}
+		}
+
+		const update = () => {
+			requestAnimationFrame(update);
+
+			frame += .07;
+			let i = 0;
+
+			const tm = clock.getElapsedTime();
+			const delta = clock.getDelta();
+
+			TWEEN.update();
+			
+
+			if(step < 2)
+				updateHover();
+
+			if(mixer){
+				mixer.update(.016);
+			}
+
+			if(launchFire){
+				time += delta * 35;
+				dissolveMat.time += time;
+
+			}
+			
+
+			/*model.traverse(child => {
+				if(child.isBone && child.name.indexOf('stem') != -1) {
+					child.rotation.x = 0;
+					child.rotation.y = 0;
+					child.rotation.z = 0;
+				}
+			})*/
+
+			model.traverse(child => {
+				if(child.isBone && child.name.indexOf('stem') != -1) {
+					//console.log(child);
+					child.rotation.x = 0;
+					child.rotation.y = 0;
+					child.rotation.z = 0;
+
+					const x = noise.noise3D( i*SPREAD+frame/SPEED, 0, 0) * ANGLE;
+					const y = noise.noise3D( 0, i*SPREAD+frame/SPEED, 0) * ANGLE;
+					const z = noise.noise3D( 0, 0, i*SPREAD+frame/SPEED) * ANGLE + windVal;
+					//console.log(wind.x)
+					child.rotateX(radians(x));
+					child.rotateY(radians(y));
+					child.rotateZ(radians(z));
+
+					i++;
+				}
+			});
+
+			
+			if(step>=1)
+				particles.update(delta, time, posHit);
+			//const t3 =  THREE.MathUtils.mapLinear(mouse.x, -1, 1, 0, 2 * Math.PI	);
+
+		   	leafHolder.position.y = Math.sin(frame * .2) * .1 ;
+		   	//leafHolder.rotation.y = t3;
+
+			renderer.render(scene, camera);
+			//fx.render()
+			//updateDebug();
+		};
+
+		init();
+
+	</script>
+</body>
+</html>

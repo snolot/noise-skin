@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>test_particles</title>
+	<style type="text/css">
+		body, html{
+			margin: 0px;
+		}
+	</style>
+</head>
+<body>
+	<script type="module">
+		import * as THREE from '../three.js-131/build/three.module.js';
+		import { OrbitControls } from '../three.js-131/examples/jsm/controls/OrbitControls.js';
+		import { GLTFLoader } from '../three.js-131/examples/jsm/loaders/GLTFLoader.js';
+		import {Particles} from './js/ParticlesDev.js';
+
+		const clock = new THREE.Clock();
+		const loader = new GLTFLoader();
+
+		let camera, scene, renderer, model, animations, action, mixer;
+		let particles, skinnedMesh;
+
+		let cameraDebug, sceneDebug, spriteDebug, idxDebug = 0, debugEnabled = true;
+
+		const initDebug = _ => {
+			document.addEventListener('keyup', e => {
+				switch(e.keyCode){
+					case 49:
+						idxDebug = 0
+					break
+					case 50:
+						idxDebug = 1
+					break
+					case 51:
+						idxDebug = 2
+					break
+					case 52:
+						idxDebug = 3
+					break
+					case 53:
+						idxDebug = 4
+					break
+					case 54:
+						idxDebug = 5
+					break
+					case 32:
+						debugEnabled = !debugEnabled;
+					break
+				}
+			})
+
+			cameraDebug = new THREE.OrthographicCamera( - window.innerWidth / 2, window.innerWidth / 2, window.innerHeight / 2, - window.innerHeight / 2, 1, 10 );
+			cameraDebug.position.z = 10;
+
+			sceneDebug = new THREE.Scene();
+			//sceneDebug.background = new THREE.Color('red')
+			var spriteMaterial = new THREE.SpriteMaterial( { map: null } );
+			
+			spriteDebug = new THREE.Sprite( spriteMaterial );
+			spriteDebug.scale.set( 256, 256, 1 );
+			sceneDebug.add( spriteDebug );
+
+			
+			var halfWidth = window.innerWidth / 2;
+			var halfHeight = window.innerHeight / 2;
+
+			var halfImageWidth = 256 / 2;
+			var halfImageHeight = 256 / 2;
+
+			spriteDebug.position.set( - halfWidth + halfImageWidth, halfHeight - halfImageHeight, 1 );
+
+
+			cameraDebug.left = - window.innerWidth / 2;
+			cameraDebug.right = window.innerWidth / 2;
+			cameraDebug.top = window.innerHeight / 2;
+			cameraDebug.bottom = - window.innerHeight / 2;
+			cameraDebug.updateProjectionMatrix();
+		}
+
+		const initParticles = () => {
+			particles = Particles(renderer, scene, camera, skinnedMesh);
+			particles.init();
+		};
+
+		const initModel = () => {
+			return new Promise((resolve) => {
+				loader.load('./plant2.glb', gltf => {
+					model = gltf.scene;
+
+					model.traverse((child) => {
+						if(child.isSkinnedMesh){
+							skinnedMesh = child;
+
+							animations = gltf.animations;
+							mixer = new THREE.AnimationMixer(model);
+							action = mixer.clipAction(animations[0]);
+
+							action.play();
+							scene.add(model);
+
+							
+							resolve(true);
+						}
+					});
+				});
+			});
+		};
+
+		const initLights = () => {
+			const ambient = new THREE.AmbientLight( 0x333333, 1.4 );
+			scene.add( ambient );
+
+			const dirLight = new THREE.DirectionalLight( 0xffffff, 5 );
+			dirLight.position.set( 10, 10, 10 );
+			dirLight.target = model;
+
+			dirLight.castShadow = true;
+			dirLight.shadow.camera.near = 1;
+			dirLight.shadow.camera.far = 100;
+			dirLight.shadow.camera.right = 15;
+			dirLight.shadow.camera.left = - 15;
+			dirLight.shadow.camera.top	= 15;
+			dirLight.shadow.camera.bottom = - 15;
+			dirLight.shadow.mapSize.width = 1024;
+			dirLight.shadow.mapSize.height = 1024;
+			dirLight.shadow.radius = 4;
+			dirLight.shadow.bias = - 0.0005;
+
+
+			scene.add( dirLight );
+
+			const directionalLight2 = new THREE.DirectionalLight( 0x8bbab4, 1.3 );
+			directionalLight2.position.set( 1, 1, - 1 );
+			scene.add( directionalLight2 );
+		};
+
+		const init = async () => {
+			camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 1, 1000);
+			scene = new THREE.Scene();
+			camera.position.z = 5;	
+			camera.position.y = 5;
+			renderer = new THREE.WebGLRenderer({alpha:false});
+			//renderer.setPixelRatio(window.devicePixelRatio);
+    		renderer.outputEncoding = THREE.sRGBEncoding;
+			renderer.physicallyCorrectLights = true;
+	    	renderer.shadowMap.enabled = true;
+			renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+			renderer.toneMapping = THREE.ACESFilmicToneMapping;
+			document.body.appendChild(renderer.domElement);
+			renderer.setClearColor ( new THREE.Color(0,0,0), 1.0 ) 
+			renderer.setSize(innerWidth, innerHeight);
+
+			//scene.add(new THREE.AmbientLight(0xFFFFFF));
+			//scene.background = new THREE.TextureLoader().load('./PMI-ToolScience-BG-Heat.png');
+
+			const control = new OrbitControls(camera, renderer.domElement);
+			control.target = new THREE.Vector3(0,1,0);
+			control.update();
+
+			await initModel();
+			initLights();
+			initDebug();
+			initParticles();
+
+			update();
+		};
+
+		const updateDebug = () => {
+			if(debugEnabled){
+				if(idxDebug == 0)
+					spriteDebug.material.map = particles.originalTexture;
+				else if(idxDebug == 1)
+					spriteDebug.material.map = rttFront.texture;
+				/*else if(idxDebug == 2)
+					spriteDebug.material.map = rttNormalFront.texture;
+				else if(idxDebug == 3)
+					spriteDebug.material.map = rttBack.depthTexture;				
+				else if(idxDebug == 4)
+					spriteDebug.material.map = rttBack.texture;				
+				else if(idxDebug == 5)
+					spriteDebug.material.map = rttNormalBack.texture;*/
+
+				renderer.render( sceneDebug, cameraDebug );
+			}
+		}
+		
+		const update = () => {
+			requestAnimationFrame(update);
+			const delta = clock.getDelta();
+			const time = clock.getElapsedTime();
+
+			if(mixer){
+				mixer.update(delta);
+			}
+
+			particles.update(delta,  time, new THREE.Vector3());
+
+			renderer.render(scene, camera);
+			//updateDebug();
+		};
+
+		init();
+
+	</script>
+</body>
+</html>
