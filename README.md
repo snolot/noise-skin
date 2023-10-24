@@ -1,6 +1,6 @@
 # Noise-Skin
 
-Three.js experiment for with particles using GPU rendering
+Three.js experiment with particles animated using SkinnedMesh animation in glb file.
 
 ## Description
 
