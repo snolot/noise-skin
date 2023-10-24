@@ -7,15 +7,15 @@
 			margin: 0px;
 		}
 	</style>
-	<script type="text/javascript" src="./simplex-noise.js"></script>
+	<script type="text/javascript" src="./libs/simplex-noise.js"></script>
 </head>
 <body>
 	<script type="module">
-		import * as THREE from '../three.js-131/build/three.module.js';
-		import { OrbitControls } from '../three.js-131/examples/jsm/controls/OrbitControls.js';
-		import { GLTFLoader } from '../three.js-131/examples/jsm/loaders/GLTFLoader.js';
-		import {TWEEN} from '../three.js-131/examples/jsm/libs/tween.module.min.js';
-		import {DissolveMaterial} from './js/DissolveMaterialRTT.js';
+		import * as THREE from './libs/build/three.module.js';
+		import { OrbitControls } from './libs/examples/jsm/controls/OrbitControls.js';
+		import { GLTFLoader } from './libs/examples/jsm/loaders/GLTFLoader.js';
+		import {TWEEN} from './libs/examples/jsm/libs/tween.module.min.js';
+		import {DissolveMaterial} from './src/DissolveMaterialRTT.js';
 
 		const clock = new THREE.Clock();
 		const loader = new GLTFLoader();
